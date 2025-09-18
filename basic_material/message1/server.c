@@ -82,4 +82,7 @@ int main()
 
 		close(client);
 	}
+	close(server);
+
+	return 0;
 }

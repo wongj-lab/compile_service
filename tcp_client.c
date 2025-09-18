@@ -56,7 +56,7 @@ int TcpClient_SendRaw(TcpClient* client,char* buf,int length)
 	int ret = 0;
 	Client* c = (Client*)client;
 
-	if( c&&buff )
+	if( c&&buf )
 	{
 		ret = send(c->fd,buf,length,0);
 	}
@@ -93,7 +93,7 @@ int TcpClient_Connect(TcpClient* client,char* ip,int port)
 	int ret = TcpClient_IsValid(client);
 	Client* c = (Client*)client;
 
-	if( !ret&&ip&&((c->fd=socket(PF_INET,SOCK_STREAM)) != -1) )
+	if( !ret&&ip&&((c->fd=socket(PF_INET,SOCK_STREAM,0)) != -1) )
 	{
 		struct sockaddr_in addr={0};
 
@@ -151,7 +151,7 @@ void TcpClient_SetData(TcpClient* client,void* data)
 
 	if( c )
 	{
-		c-data = data;
+		c->data = data;
 	}
 }
 void* TcpClient_GetData(TcpClient* client)
