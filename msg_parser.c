@@ -101,7 +101,7 @@ Message* MParser_ReadMem(MParser* parser, unsigned char* mem, unsigned int lengt
     Message* ret = NULL;
     MsgParser* p = (MsgParser*)parser;
 
-    if( p && mem && length )
+    if( p && mem )
     {
         if( !p->header )
         {
