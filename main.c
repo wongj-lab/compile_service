@@ -11,119 +11,209 @@
 #include "tcp_server.h"
 #include "utility.h"
 
-void func1()
+#define BUF_SIZE 512
+
+typedef struct
 {
-    TcpServer* s = TcpServer_New();
+	const char* cmd;
+	void (*handler)(const char*);
+}Handler;
 
-    TcpServer_Start(s, 9000, 100);
+enum {STOP,RUN,PAUSE};
 
-    if( TcpServer_IsValid(s) )
-    {
-        char buf[64] = {0};
-        int len = 0;
-        TcpClient* c = TcpServer_Accept(s);
+static const volatile char* g_root = NULL;
+static volatile int g_status = STOP;
 
-        if( c )
-        {
-            len = TcpClient_RecvRaw(c, buf, sizeof(buf)-1);
+static void DoResp(TcpClient* client)
+{
+	int len = TcpClient_Available(client);
 
-            buf[len] = 0;
+	if( len>0 )
+	{
+		char* buf = malloc(len+1);
 
-            printf("recv = %s\n", buf);
+		TcpClient_RecvRaw(client,buf,len);
 
-            TcpClient_SendRaw(c, buf, len);
+		buf[len] = 0;
 
-            TcpClient_Del(c);
-        }
+		printf("%s -Request: %s\n",__FUNCTION__,buf);
 
-        TcpServer_Del(s);
-    }
+		char resp[255] = {0};
+
+		sscanf(buf,"GET %s HTTP",resp);
+
+		printf("%s -Req String: %s\n",__FUNCTION__,resp);
+
+		char* format = "HTTP/1.1 200 OK\r\n"
+                       "Server:D.T. Http Server\r\n"
+                       "Content-Length:%d\r\n"
+                       "Content-Type:text/html\r\n"
+                       "Connection:close\r\n"
+                       "\r\n"
+                       "%s";
+		sprintf(resp,format,strlen((const char*)g_root),g_root);
+		
+		TcpClient_SendRaw(client,resp,strlen(resp));
+
+		TcpClient_Del(client);
+
+		free(buf);
+	}
 }
 
-void* thread_entry(void* arg)
+static void* Process_Thread(void *arg)
 {
-    pthread_t id = pthread_self();
-    int n = (long)arg;
-    int i = 0;
+	while(TcpClient_IsValid(arg))
+	{
+		DoResp(arg);
+	}
 
-    for(i=0; i<n; i++)
-    {
-        printf("tid = %ld, i = %d\n", id, i);
-        sleep(1);
-    }
+	printf("%s - Thread Exit: %p\n",__FUNCTION__,arg);
 
-    return NULL;
+	return arg;
 }
 
-void func2()
+static void* Server_Thread(void* arg)
 {
-    pthread_t t1 = 0;
-    pthread_t t2 = 0;
-    int arg1 = 5;
-    int arg2 = 10;
+	while( TcpServer_IsValid(arg) )
+	{
+		TcpClient* client = TcpServer_Accept(arg);
 
-    printf("create thread...\n");
+		if( client&&(g_status != PAUSE) )
+		{
+			pthread_t tid = 0;
 
-    pthread_create(&t1, NULL, thread_entry, (void*)arg1);
-    pthread_create(&t2, NULL, thread_entry, (void*)arg2);
+			pthread_create(&tid,NULL,Process_Thread,client);
+		}
+		else
+		{
+			TcpClient_Del(client);
+		}
+	}
 
-    printf("t1 = %ld\n", t1);
-    printf("t2 = %ld\n", t2);
+	g_status = STOP;
 
-    pthread_join(t1, NULL);
-    pthread_join(t2, NULL);
-
-    printf("child thread is finished...\n");
+	return arg;
 }
 
-void func3()
+static void Start_Handler(const char* arg)
 {
-    DIR* dirp = opendir(".");
+	int err = 0;
 
-    if( dirp != NULL )
-    {
-        struct dirent* dp = NULL;
+	if(g_status == STOP)
+	{
+		TcpServer* server = TcpServer_New();
 
-        while( (dp = readdir(dirp)) != NULL )
-        {
-            struct stat sb = {0};
+		TcpServer_Start(server,9000,100);
 
-            if( stat(dp->d_name, &sb) != -1 )
-            {
-                printf("name: %s, type: %d, len: %ld, mtime: %s", 
-                        dp->d_name, dp->d_type, sb.st_size, ctime(&sb.st_mtime));
-            }
-        }
-    }
+		if(TcpServer_IsValid(server))
+		{
+			pthread_t tid = 0;
 
-    closedir(dirp);
+			err = pthread_create(&tid,NULL,Server_Thread,server);
+		}
+		else
+		{
+			err = 1;
+		}
+	}
+
+	if( !err )
+	{
+		g_status = RUN;
+
+		printf("Server is OK!\n");
+	}
+	else
+	{
+		g_status = STOP;
+
+		printf("Server is failed!\n");
+	}
 }
 
-void file_copy(const char* dst, const char* src)
+static void Pause_Handler(const char* arg)
 {
-    int dfd = open(dst, O_WRONLY|O_CREAT, 0600);
-    int sfd = open(src, O_RDONLY);
+	if( g_status == RUN )
+	{
+		g_status = PAUSE;
 
-    if( (dfd != -1) && (sfd != -1) )
-    {
-        char buf[512] = {0};
-        int len = 0;
-
-        while( (len = read(sfd, buf, sizeof(buf))) > 0 )
-        {
-            write(dfd, buf, len);
-        }
-
-        close(dfd);
-        close(sfd);
-    }
+		printf("Server is paused!\n");
+	}
+	else
+	{
+		printf("Server is NOT started!\n");
+	}
 }
 
-int main()
+static void Exit_Handler(const char* arg)
 {
-    //file_copy("new.out", "a.out");
-	func3();
-
-    return 0;
+	exit(0);
 }
 
+static Handler g_handler[] =
+{
+	{"start",Start_Handler},
+	{"pause",Pause_Handler},
+	{"exit",Exit_Handler}
+};
+
+static void Run(const char* root)
+{
+	printf("File Server Demo wangjing\n");
+
+	g_root = root;
+
+	while(1)
+	{
+		char line[BUF_SIZE] = {0};
+		int i = 0;
+
+		printf("wangjing @ Input >>>");
+		fgets(line,sizeof(line)-1,stdin);
+
+		line[strlen(line)-1] = 0;
+
+		if( *line )
+		{
+			char* cmd = FormatByChar(line,' ');
+			int done = 0;
+
+			for(i=0;i<DIM(g_handler);i++)
+			{
+				if(strcmp(g_handler[i].cmd,cmd) == 0)
+				{
+					g_handler[i].handler(cmd);
+					done = 1;
+					break;
+				}
+			}
+
+			if( !done )
+			{
+				printf("\'%s\' can NOT be parsed!\n",cmd);
+			}
+
+			free(cmd);
+		}
+	}
+}
+
+int main(int argc,char* argv[])
+{
+	if( argc >= 2 )
+	{
+		DIR* dir = opendir(argv[1]);
+
+		if( dir != NULL )
+		{
+			closedir(dir);
+
+			Run(argv[1]);
+		}
+	}
+
+	printf("can not lauch file server,need a valid directory as root. \n");
+
+	return 0;
+}

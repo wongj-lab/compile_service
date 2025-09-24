@@ -2,7 +2,7 @@
 #define UTILITY_H
 
 #include <stdlib.h>
-
+#define DIM(a) (sizeof(a)/sizeof(*a))
 #define Malloc2d(type, row, col)                       \
 ({                                                     \
     type** ret = NULL;                                 \
