@@ -10,6 +10,7 @@
 #include <dirent.h>
 #include "tcp_server.h"
 #include "utility.h"
+#include "page.h"
 
 #define BUF_SIZE 512
 
@@ -201,6 +202,23 @@ static void Run(const char* root)
 
 int main(int argc,char* argv[])
 {
+	Table* t = CreateTable();
+	RowInfo ri = {"aaa","bbb","ccc","ddd","eee"};
+	RowInfo rj = {"111","222","333","444","555"};
+
+	t = InsertRow(t,&ri);
+	t = InsertRow(t,&rj);
+
+	char* ts = ToTableString(t);
+	char* page = ToPageString("test/path/folder",ts);
+
+	printf("%s\n",page);
+
+	free(page);
+	free(ts);
+	FreeTable(t);
+	return 0;
+
 	if( argc >= 2 )
 	{
 		DIR* dir = opendir(argv[1]);
