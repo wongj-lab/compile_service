@@ -10,7 +10,7 @@ typedef struct
 	char size[32];
 	char time[32];
 }RowInfo;
-
+char* ToErrString(const char* path);
 char* ToPageString(const char* path,const char* ts);
 Table* CreateTable();
 Table* InsertRow(Table* table,RowInfo* info);
